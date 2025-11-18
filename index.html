@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Hologramme Sira V2</title>
+    <title>Hologramme Sira V3 (Zoom)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: black; touch-action: none; }
         #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: sans-serif; pointer-events: none; }
@@ -24,98 +24,105 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // --- CONFIGURATION ---
-        const FILENAME = 'objet.glb'; // REMPLACEZ PAR VOTRE NOM DE FICHIER
-        const SCALE_FACTOR = 2.0;     // Ajustez la taille ici (2.0 est une bonne moyenne)
-        const CAMERA_DISTANCE = 4.5;  // Recul de la caméra (plus petit = objet plus gros)
+        const FILENAME = 'objet.glb'; 
+        const SCALE_FACTOR = 2.0;     // Taille de base
+        
+        // GESTION DU ZOOM (Distance Caméra)
+        let cameraDistance = 4.5;     // Distance actuelle
+        const MIN_ZOOM = 2.5;         // Zoom Max (plus le chiffre est petit, plus on est près)
+        const MAX_ZOOM = 8.0;         // Zoom Min (plus le chiffre est grand, plus on est loin)
 
         // Scène
         const scene = new THREE.Scene();
-        
-        // Lumières
         const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 3);
         dirLight.position.set(5, 10, 7);
         scene.add(dirLight);
-        // Lumière arrière pour bien détourer la silhouette
         const backLight = new THREE.DirectionalLight(0xffffff, 1);
         backLight.position.set(-5, 0, -5);
         scene.add(backLight);
 
-        // Groupe Modèle
         const modelGroup = new THREE.Group();
         scene.add(modelGroup);
 
-        // Chargement
         const loader = new GLTFLoader();
         loader.load(FILENAME, function (gltf) {
             const model = gltf.scene;
-            
-            // Centrage parfait
             const box = new THREE.Box3().setFromObject(model);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
-            
-            // Normalisation de la taille (pour que tous les objets aient à peu près la même taille)
             const maxDim = Math.max(size.x, size.y, size.z);
             const scale = SCALE_FACTOR / maxDim;
-            
             model.position.sub(center); 
             model.scale.set(scale, scale, scale);
-            
             modelGroup.add(model);
             document.getElementById('loader').style.display = 'none';
-        }, undefined, function (error) {
-            console.error(error);
-            document.getElementById('loader').innerText = "Erreur fichier.";
-        });
+        }, undefined, function (error) { console.error(error); });
 
-        // Caméra unique (on la déplacera pour chaque vue)
-        // IMPORTANT : Aspect ratio de 1 (carré) pour ne jamais déformer l'image
         const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-
-        // Renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio); // Netteté max sur mobile
+        renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
-        // --- GESTION DU REDIMENSIONNEMENT (Fixe le problème Paysage) ---
         window.addEventListener('resize', onWindowResize, false);
-        function onWindowResize() {
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            // On ne change pas l'aspect de la caméra ici, on le garde carré (1)
-        }
+        function onWindowResize() { renderer.setSize(window.innerWidth, window.innerHeight); }
 
-        // --- INTERACTIVITÉ TACTILE ---
+        // --- INTERACTIVITÉ V3 (ROTATION + ZOOM) ---
         let isDragging = false;
         let previousX = 0;
+        let previousY = 0;
 
-        // Souris
-        document.addEventListener('mousedown', (e) => { isDragging = true; previousX = e.clientX; });
+        // Fonction pour limiter le zoom
+        function clamp(val, min, max) { return Math.min(Math.max(val, min), max); }
+
+        // SOURIS (PC)
+        document.addEventListener('mousedown', (e) => { isDragging = true; previousX = e.clientX; previousY = e.clientY; });
         document.addEventListener('mouseup', () => { isDragging = false; });
         document.addEventListener('mousemove', (e) => {
             if (isDragging) {
-                const delta = e.clientX - previousX;
-                modelGroup.rotation.y += delta * 0.01;
+                // Rotation (X)
+                const deltaX = e.clientX - previousX;
+                modelGroup.rotation.y += deltaX * 0.01;
+                
+                // Zoom (Y) - On inverse le sens pour que "pousser" vers le haut = avancer (zoomer)
+                const deltaY = e.clientY - previousY;
+                cameraDistance += deltaY * 0.02; 
+                cameraDistance = clamp(cameraDistance, MIN_ZOOM, MAX_ZOOM);
+
                 previousX = e.clientX;
+                previousY = e.clientY;
             }
         });
 
-        // Tactile
-        document.addEventListener('touchstart', (e) => { isDragging = true; previousX = e.touches[0].clientX; }, {passive: false});
+        // TACTILE (MOBILE)
+        document.addEventListener('touchstart', (e) => { 
+            isDragging = true; 
+            previousX = e.touches[0].clientX; 
+            previousY = e.touches[0].clientY;
+        }, {passive: false});
+        
         document.addEventListener('touchend', () => { isDragging = false; });
+        
         document.addEventListener('touchmove', (e) => {
             if (isDragging) {
-                const delta = e.touches[0].clientX - previousX;
-                modelGroup.rotation.y += delta * 0.01;
+                // Rotation
+                const deltaX = e.touches[0].clientX - previousX;
+                modelGroup.rotation.y += deltaX * 0.01;
+
+                // Zoom
+                const deltaY = e.touches[0].clientY - previousY;
+                cameraDistance += deltaY * 0.02;
+                cameraDistance = clamp(cameraDistance, MIN_ZOOM, MAX_ZOOM);
+
                 previousX = e.touches[0].clientX;
+                previousY = e.touches[0].clientY;
             }
-            e.preventDefault(); // Empêche le scroll de l'écran
+            e.preventDefault(); 
         }, {passive: false});
 
-
-        // --- BOUCLE DE RENDU (Le Moteur Holographique) ---
+        // --- BOUCLE DE RENDU ---
         renderer.setScissorTest(true);
 
         function render() {
@@ -123,18 +130,14 @@
             
             const w = window.innerWidth;
             const h = window.innerHeight;
-            
-            // CALCUL INTELLIGENT DE LA TAILLE
-            // On prend la plus petite dimension de l'écran (Largeur ou Hauteur)
-            // Et on divise par 2.5 pour avoir de la marge au centre pour la pyramide
             const s = Math.min(w, h) / 2.6; 
-            
             const midX = w / 2;
             const midY = h / 2;
-            const dist = CAMERA_DISTANCE;
+            
+            // On utilise la variable dynamique cameraDistance
+            const dist = cameraDistance; 
 
-            // 1. BAS (Image à l'endroit)
-            // Viewport : (x, y, width, height)
+            // 1. BAS
             renderer.setViewport(midX - s/2, midY - s - (s*0.05), s, s);
             renderer.setScissor(midX - s/2, midY - s - (s*0.05), s, s);
             camera.position.set(0, 0, dist);
@@ -142,15 +145,15 @@
             camera.rotation.z = 0;
             renderer.render(scene, camera);
 
-            // 2. HAUT (Retourné 180°)
+            // 2. HAUT
             renderer.setViewport(midX - s/2, midY + (s*0.05), s, s);
             renderer.setScissor(midX - s/2, midY + (s*0.05), s, s);
-            camera.position.set(0, 0, dist); // On reste en face
+            camera.position.set(0, 0, dist);
             camera.lookAt(0, 0, 0);
-            camera.rotation.z = Math.PI; // On tourne la caméra physiquement
+            camera.rotation.z = Math.PI;
             renderer.render(scene, camera);
 
-            // 3. DROITE (Couché 90°)
+            // 3. DROITE
             renderer.setViewport(midX + (s*0.05), midY - s/2, s, s);
             renderer.setScissor(midX + (s*0.05), midY - s/2, s, s);
             camera.position.set(0, 0, dist);
@@ -158,7 +161,7 @@
             camera.rotation.z = -Math.PI / 2;
             renderer.render(scene, camera);
 
-            // 4. GAUCHE (Couché -90°)
+            // 4. GAUCHE
             renderer.setViewport(midX - s - (s*0.05), midY - s/2, s, s);
             renderer.setScissor(midX - s - (s*0.05), midY - s/2, s, s);
             camera.position.set(0, 0, dist);
@@ -170,3 +173,4 @@
     </script>
 </body>
 </html>
+
